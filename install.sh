@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# --- Настройка стилей ---
+# --- Настройка стилей (как в 5.7) ---
 C_CYAN='\033[1;36m'
 C_GREEN='\033[1;32m'
 C_PURPLE='\033[1;35m' 
@@ -12,7 +12,7 @@ C_NC='\033[0m'
 
 HISTORY_FILE="/etc/relay_history.txt"
 
-# --- Спиннер ---
+# --- Функция анимации ---
 spinner() {
     local pid=$!
     local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
@@ -63,7 +63,7 @@ cat << 'EOF'
    |_| \_\_____|_____/_/   \_\_|  
 EOF
 printf "${C_NC}"
-echo -e "${C_PURPLE}${C_BOLD}  ✦ Super Relay Wizard v5.8 ✦${C_NC}"
+echo -e "${C_PURPLE}${C_BOLD}  ✦ Super Relay Wizard v5.9 ✦${C_NC}"
 echo -e "${C_YELLOW}             by LeLUK${C_NC}\n"
 
 if [ "$EUID" -ne 0 ]; then
@@ -84,15 +84,16 @@ esac
 
 # ШАГ 1
 echo -e "\n${C_WHITE}📌 ШАГ 1: ИСТОЧНИК ДАННЫХ${C_NC}"
-read -p "Выберите 1 (Ссылка), 2 (Домен:порт) или 3 (Вручную): " CHOICE_IN
+echo -e "  1) Ссылка\n  2) Домен:порт\n  3) Вручную"
+CHOICE=$(ask_step "👉 Ваш выбор [1-3]: " 3)
 
 HAS_LINK=false
-case $CHOICE_IN in
+case $CHOICE in
     1)
         read -p "Вставьте ссылку: " L
         HAS_LINK=true
         PROTO=$(echo $L | sed -E 's/^([a-zA-Z2]+):\/\/.*/\1/')
-        ID=$(echo $L | sed -E 's/^[^@]+@([^:]+):.*/\1/' | sed -E 's/.*:\/\/([^@]+)@.*/\1/')
+        ID=$(echo $L | sed -E 's/^[a-zA-Z2]+:\/\/([^@]+)@.*/\1/')
         EU_HOST=$(echo $L | sed -E 's/.*@([^:]+):.*/\1/')
         PORT=$(echo $L | sed -E 's/.*:([0-9]+).*/\1/' | cut -d'?' -f1 | cut -d'#' -f1)
         [[ "$L" == *"?"* ]] && PARAMS=$(echo $L | sed -E 's/.*\?(.*)#.*/\1/' | cut -d'#' -f1) || PARAMS=""
@@ -106,7 +107,7 @@ EU_IP=$(getent ahosts "$EU_HOST" | awk '{ print $1 }' | head -n 1)
 
 # ШАГ 2
 echo -e "\n${C_WHITE}📌 ШАГ 2: ВХОДНОЙ АДРЕС${C_NC}"
-read -p "Введите ваш домен (обязательно для заглушки) или Enter для IP: " DOMAIN
+read -p "Введите ваш домен (или Enter для IP): " DOMAIN
 LOCAL_IP=$(curl -s ifconfig.me)
 [ -z "$DOMAIN" ] && ENTRY="$LOCAL_IP" || ENTRY="$DOMAIN"
 
@@ -115,47 +116,41 @@ echo -e "\n${C_WHITE}📌 ШАГ 3: РЕЖИМ${C_NC}"
 CHOICE3=$(ask_step "  1) Очистить старое\n  2) Добавить порт\n👉 Ваш выбор: " 2)
 
 # ШАГ 4
-echo -e "\n${C_WHITE}📌 ШАГ 4: НАСТРОЙКА СИСТЕМЫ И FIREWALL${C_NC}"
+echo -e "\n${C_WHITE}📌 ШАГ 4: НАСТРОЙКА СИСТЕМЫ${C_NC}"
 wait_for_apt
 
-echo -e "⚙️ Открываем порты и настраиваем маршруты..."
+echo -e "⚙️ Настраиваем маршруты и открываем Firewall..."
 (
     echo 1 > /proc/sys/net/ipv4/ip_forward
-    
-    # Сброс если выбран режим 1
     [ "$CHOICE3" == "1" ] && iptables -t nat -F
 
-    # Принудительное открытие порта 80 и VPN порта в INPUT
+    # --- ДОБАВЛЕНО: ПРИНУДИТЕЛЬНОЕ ОТКРЫТИЕ ПОРТОВ ---
     iptables -I INPUT -p tcp --dport 80 -j ACCEPT
     iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
     iptables -I INPUT -p udp --dport $PORT -j ACCEPT
-
-    # Правила транзита
-    for proto in tcp udp; do
-        iptables -t nat -A PREROUTING -p $proto --dport $PORT -j DNAT --to-destination $EU_IP:$PORT
-        iptables -t nat -A POSTROUTING -p $proto -d $EU_IP --dport $PORT -j MASQUERADE
-    done
-
-    # Если есть UFW - разрешаем и там
     if command -v ufw > /dev/null; then
         ufw allow 80/tcp > /dev/null
         ufw allow $PORT/tcp > /dev/null
         ufw allow $PORT/udp > /dev/null
     fi
+    # -----------------------------------------------
+
+    for proto in tcp udp; do
+        iptables -t nat -A PREROUTING -p $proto --dport $PORT -j DNAT --to-destination $EU_IP:$PORT
+        iptables -t nat -A POSTROUTING -p $proto -d $EU_IP --dport $PORT -j MASQUERADE
+    done
 ) > /dev/null 2>&1 &
 spinner
 
 echo -e "🛡️ Установка заглушки Nginx..."
 (
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get install -y -qq nginx iptables-persistent > /dev/null
+    apt-get update -y -qq
+    apt-get install -y -qq nginx iptables-persistent < /dev/null
     
-    # Создаем красивую заглушку
     cat <<EOF > /var/www/html/index.html
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Status: 200 OK</title>
-<style>body{background:#121214;color:#f0f0f0;text-align:center;padding:15vh 10%;font-family:sans-serif;}h1{color:#00ff88;font-weight:300;}</style></head>
-<body><h1>🛠 Node $ENTRY: Online</h1><p>System is operating normally. Backend services are active.</p><p style="color:#666;"><i>Ref: $(date +%Y%m%d)</i></p></body></html>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Maintenance</title><style>body{background:#0f0f11;color:#e0e0e0;text-align:center;padding:15vh 10%;font-family:sans-serif;}</style></head>
+<body><h1>🛠 Node Status: Maintenance</h1><p>Scheduled backend upgrades in progress. Services are active.</p><p><i>$ENTRY</i></p></body></html>
 EOF
     systemctl enable nginx > /dev/null
     systemctl restart nginx > /dev/null
@@ -164,7 +159,7 @@ EOF
 spinner
 
 # ФИНАЛ
-echo -e "\n${C_GREEN}${C_BOLD} 🎉 ВСЁ НАСТРОЕНО И ОТКРЫТО!${C_NC}"
+echo -e "\n${C_GREEN}${C_BOLD} 🎉 ВСЁ УСПЕШНО НАСТРОЕНО!${C_NC}\n"
 if [ "$HAS_LINK" = true ]; then
     NEW_NAME="${NAME}%2DTUN%5B${LOCAL_IP}%5D"
     FINAL_LINK="${PROTO}://${ID}@${ENTRY}:${PORT}?${PARAMS}#${NEW_NAME}"
@@ -173,4 +168,3 @@ if [ "$HAS_LINK" = true ]; then
 else
     echo -e "IP: $ENTRY | Port: $PORT"
 fi
-echo -e "Заглушка доступна по адресу: ${C_CYAN}http://$ENTRY${C_NC}"
