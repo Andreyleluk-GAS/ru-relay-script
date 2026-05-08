@@ -1,16 +1,19 @@
 #!/bin/bash
 
-# --- Настройка стилей (Яркие и насыщенные цвета) ---
+# --- Настройка стилей ---
 C_CYAN='\033[1;36m'
 C_GREEN='\033[1;32m'
-C_PURPLE='\033[1;35m' # Розовый / Маджента
+C_PURPLE='\033[1;35m' 
 C_YELLOW='\033[1;33m'
 C_WHITE='\033[1;37m'
 C_RED='\033[1;31m'
 C_BOLD='\033[1m'
 C_NC='\033[0m'
 
-# --- Функция анимации (Спиннер) ---
+# Файл для хранения истории
+HISTORY_FILE="/etc/relay_history.txt"
+
+# --- Функция анимации ---
 spinner() {
     local pid=$!
     local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
@@ -41,7 +44,7 @@ ask_step() {
                 [ "$retry" == "2" ] && exit 1
                 attempts=0
             else
-                echo -e "${C_RED}❌ Введите цифру от 1 до $2 (Попытка $attempts из $max_attempts)${C_NC}"
+                echo -e "${C_RED}❌ Введите цифру от 1 до $2${C_NC}"
             fi
         fi
     done
@@ -57,23 +60,55 @@ cat << 'EOF'
    |_| \_\_____|_____/_/   \_\_|  
 EOF
 printf "${C_NC}"
-echo -e "${C_PURPLE}${C_BOLD}  ✦ Super Relay Wizard v5.5 ✦${C_NC}"
+echo -e "${C_PURPLE}${C_BOLD}  ✦ Super Relay Wizard v5.6 ✦${C_NC}"
 echo -e "${C_YELLOW}             by LeLUK${C_NC}\n"
-
-echo -e "${C_WHITE}💡 СУТЬ РАБОТЫ:${C_NC}"
-echo -e "Этот скрипт маскирует ваш трафик под ${C_GREEN}российский${C_NC}."
-echo -e "Провайдер увидит обращение к этому серверу (РФ), а не в Европу."
-
-echo -e "\n${C_YELLOW}⚠️ ПРОВЕРКА IP:${C_NC}"
-echo -e "Для обхода ограничений биллинга этот сервер ${C_RED}ДОЛЖЕН${C_NC} иметь российский IP."
 
 if [ "$EUID" -ne 0 ]; then
     echo -e "${C_RED}❌ Нужны права root (sudo bash ...)${C_NC}"
     exit 1
 fi
 
+# --- ГЛАВНОЕ МЕНЮ ---
+echo -e "${C_WHITE}📱 ГЛАВНОЕ МЕНЮ:${C_NC}"
+echo -e "  1) Настроить новое подключение (VLESS / Hysteria2)"
+echo -e "  2) 📋 Посмотреть все ранее сделанные настройки"
+echo -e "  3) 🗑️ Очистить историю настроек"
+echo -e "  4) Выход\n"
+
+MAIN_CHOICE=$(ask_step "👉 Ваш выбор [1-4]: " 4)
+
+case $MAIN_CHOICE in
+    2)
+        echo -e "\n${C_WHITE}📋 ИСТОРИЯ ВАШИХ НАСТРОЕК:${C_NC}"
+        if [ -f "$HISTORY_FILE" ] && [ -s "$HISTORY_FILE" ]; then
+            echo -e "${C_PURPLE}${C_BOLD}"
+            cat "$HISTORY_FILE"
+            echo -e "${C_NC}"
+        else
+            echo -e "${C_YELLOW}История пока пуста. Настройте что-нибудь!${C_NC}"
+        fi
+        exit 0
+        ;;
+    3)
+        rm -f "$HISTORY_FILE"
+        echo -e "${C_GREEN}✔ История успешно очищена!${C_NC}"
+        exit 0
+        ;;
+    4)
+        exit 0
+        ;;
+esac
+
+# --- ДАЛЕЕ ИДЕТ ЛОГИКА УСТАНОВКИ (ВАРИАНТ 1) ---
+
+echo -e "\n${C_WHITE}💡 СУТЬ РАБОТЫ:${C_NC}"
+echo -e "Скрипт маскирует трафик под российский. Провайдер увидит этот сервер (РФ)."
+
+echo -e "\n${C_YELLOW}⚠️ ПРОВЕРКА IP:${C_NC}"
+echo -e "Для обхода ограничений этот сервер ${C_RED}ДОЛЖЕН${C_NC} иметь российский IP.\n"
+
 # --- ШАГ 1: ДАННЫЕ ---
-echo -e "\n${C_WHITE}📌 ШАГ 1: ИСТОЧНИК ДАННЫХ${C_NC}"
+echo -e "${C_WHITE}📌 ШАГ 1: ИСТОЧНИК ДАННЫХ${C_NC}"
 echo -e "  1) Полная ссылка (vless:// / hy2://)\n  2) Адрес и порт (домен:порт)\n  3) Ввести вручную"
 CHOICE=$(ask_step "👉 Ваш выбор [1-3]: " 3)
 
@@ -106,7 +141,6 @@ case $CHOICE in
         ;;
 esac
 
-# DNS Check
 echo -ne "\n🔍 Анализ цели... "
 EU_IP=$(getent ahosts "$EU_HOST" | awk '{ print $1 }' | head -n 1)
 if [ -z "$EU_IP" ]; then echo -e "${C_RED}Ошибка DNS!${C_NC}"; exit 1; fi
@@ -114,26 +148,21 @@ echo -e "${C_GREEN}$EU_IP:$PORT${C_NC}"
 
 # --- ШАГ 2: ВХОДНОЙ АДРЕС ---
 echo -e "\n${C_WHITE}📌 ШАГ 2: ВХОДНОЙ АДРЕС${C_NC}"
-echo -e "${C_CYAN}❓ ЧТО ЭТО:${C_NC} Это адрес, который вы укажете в приложении VPN."
-echo -e "Это 'лицо' вашего сервера для провайдера. Лучше использовать домен."
 echo -e "  1) У меня есть ДОМЕН\n  2) Использовать только IP"
 CHOICE2=$(ask_step "👉 Ваш выбор [1-2]: " 2)
 
 LOCAL_IP=$(curl -s ifconfig.me)
 if [ "$CHOICE2" == "1" ]; then
-    read -p "Введите домен (например, elite.dmtr.ru): " DOMAIN; ENTRY="$DOMAIN"
+    read -p "Введите домен: " DOMAIN; ENTRY="$DOMAIN"
 else
     ENTRY="$LOCAL_IP"
-    echo -e "\n${C_YELLOW}💡 СПРАВКА: КАК СДЕЛАТЬ БЕСПЛАТНЫЙ ДОМЕН?${C_NC}"
-    echo -e "  1. Зайдите на ${C_CYAN}freedns.afraid.org${C_NC}"
-    echo -e "  2. Меню 'Dynamic DNS' -> 'Add'"
-    echo -e "  3. Выберите домен, укажите поддомен и этот IP: ${C_GREEN}$LOCAL_IP${C_NC}"
-    echo -e "  4. После этого запустите скрипт снова и выберите пункт 1."
+    echo -e "\n${C_YELLOW}💡 СПРАВКА ПО FREEDNS:${C_NC}"
+    echo -e "Привяжите этот IP: ${C_GREEN}$LOCAL_IP${C_NC} на ${C_CYAN}freedns.afraid.org${C_NC}"
 fi
 
 # --- ШАГ 3: РЕЖИМ ---
 echo -e "\n${C_WHITE}📌 ШАГ 3: РЕЖИМ УСТАНОВКИ${C_NC}"
-echo -e "  1) ОЧИСТИТЬ (для первого запуска)\n  2) ДОБАВИТЬ (для второго протокола)"
+echo -e "  1) ОЧИСТИТЬ (первый запуск)\n  2) ДОБАВИТЬ (второй протокол)"
 CHOICE3=$(ask_step "👉 Ваш выбор [1-2]: " 2)
 
 # --- ШАГ 4: УСТАНОВКА ---
@@ -158,13 +187,16 @@ echo -e "${C_GREEN}${C_BOLD} 🎉 ВСЁ УСПЕШНО НАСТРОЕНО!${C_N
 echo -e "${C_CYAN}================================================${C_NC}\n"
 
 if [ "$HAS_LINK" = true ]; then
-    # %2D = -, %5B = [, %5D = ]
     NEW_NAME="${NAME}%2DTUN%5B${LOCAL_IP}%5D"
-    echo -e "${C_WHITE}ВАША НОВАЯ ССЫЛКА (Скопируйте целиком):${C_NC}"
-    echo -e "${C_PURPLE}${C_BOLD}${PROTO}://${ID}@${ENTRY}:${PORT}?${PARAMS}#${NEW_NAME}${C_NC}\n"
+    FINAL_LINK="${PROTO}://${ID}@${ENTRY}:${PORT}?${PARAMS}#${NEW_NAME}"
+    echo -e "${C_WHITE}ВАША НОВАЯ ССЫЛКА:${C_NC}"
+    echo -e "${C_PURPLE}${C_BOLD}${FINAL_LINK}${C_NC}\n"
+    # Сохраняем в историю
+    echo "[$(date +'%Y-%m-%d %H:%M')] $FINAL_LINK" >> "$HISTORY_FILE"
 else
-    echo -e "${C_WHITE}ДАННЫЕ ДЛЯ ВВОДА ВРУЧНУЮ:${C_NC}"
-    echo -e "Адрес: ${C_GREEN}${ENTRY}${C_NC}"
-    echo -e "Порт:  ${C_GREEN}${PORT}${C_NC}\n"
+    echo -e "Адрес: ${C_GREEN}${ENTRY}${C_NC} | Порт: ${C_GREEN}${PORT}${C_NC}\n"
+    echo "[$(date +'%Y-%m-%d %H:%M')] Address: ${ENTRY} | Port: ${PORT}" >> "$HISTORY_FILE"
 fi
-echo -e "Добавьте эту ссылку в V2rayNG, NekoBox или Shadowrocket. Приятного пользования! 🚀"
+
+echo -e "История сохранена в ${C_CYAN}$HISTORY_FILE${C_NC}"
+echo -e "Для просмотра всех ссылок запустите скрипт и выберите пункт 2. 🚀"
