@@ -9,8 +9,22 @@ C_WHITE='\033[1;37m'
 C_RED='\033[1;31m'
 C_NC='\033[0m'
 
+# --- Функция анимации (Спиннер) ---
+spinner() {
+    local pid=$!
+    local delay=0.15
+    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    while kill -0 $pid 2>/dev/null; do
+        for frame in "${frames[@]}"; do
+            if ! kill -0 $pid 2>/dev/null; then break; fi
+            printf "\r  ${C_CYAN}%s${C_NC} Выполняется..." "$frame"
+            sleep $delay
+        done
+    done
+    printf "\r  ${C_GREEN}✔ Успешно завершено!                 ${C_NC}\n"
+}
+
 clear
-# Надежный вывод ASCII-логотипа без искажений
 printf "${C_CYAN}"
 cat << 'EOF'
     ____  _____ _        _ __   __
@@ -20,14 +34,19 @@ cat << 'EOF'
    |_| \_\_____|_____/_/   \_\_|  
 EOF
 printf "${C_NC}"
-echo -e "${C_PURPLE}  ✦ Super Relay Wizard v5.0 ✦${C_NC}"
+echo -e "${C_PURPLE}  ✦ Super Relay Wizard v5.3 ✦${C_NC}"
 echo -e "${C_YELLOW}             by LeLUK${C_NC}\n"
 
-# --- ВВЕДЕНИЕ ---
+# --- ШАГ 0: ВВЕДЕНИЕ И ПРЕДУПРЕЖДЕНИЕ ---
 echo -e "${C_WHITE}💡 ДЛЯ ЧЕГО ЭТОТ СКРИПТ?${C_NC}"
 echo -e "Этот мастер настройки превратит ваш сервер в невидимый транзитный шлюз."
 echo -e "Ваш провайдер будет видеть только ${C_GREEN}внутренний российский трафик${C_NC},"
 echo -e "а вы будете свободно выходить в интернет через ваш зарубежный сервер.\n"
+
+echo -e "${C_YELLOW}⚠️ ВАЖНОЕ УСЛОВИЕ ДЛЯ ПРАВИЛЬНОГО БИЛЛИНГА:${C_NC}"
+echo -e "Чтобы ваш домашний или мобильный провайдер не считал этот трафик зарубежным,"
+echo -e "данная настройка ${C_RED}ОБЯЗАТЕЛЬНО${C_NC} должна производиться на сервере с ${C_GREEN}РОССИЙСКИМ IP${C_NC}."
+echo -e "Убедитесь, что вы запустили скрипт на сервере, арендованном в РФ (Яндекс и т.д.).\n"
 
 if [ "$EUID" -ne 0 ]; then
   echo -e "${C_RED}❌ Ошибка: Запустите скрипт от имени администратора (sudo bash ...)${C_NC}"
@@ -38,16 +57,16 @@ HAS_LINK=false
 
 # --- ШАГ 1: МЕНЮ ВВОДА ---
 echo -e "${C_WHITE}📌 ШАГ 1: ГДЕ ВАШИ ДАННЫЕ ОТ ЗАРУБЕЖНОГО VPN?${C_NC}"
-echo -e "  ${C_CYAN}1)${C_NC} У меня есть полная ссылка (начинается с vless:// или hy2://)"
+echo -e "  ${C_CYAN}1)${C_NC} У меня есть полная ссылка (vless:// или hy2://)"
 echo -e "  ${C_CYAN}2)${C_NC} У меня есть адрес и порт (например: server.vpn.com:8443)"
-echo -e "  ${C_CYAN}3)${C_NC} Я хочу ввести IP-адрес и порт вручную по отдельности\n"
+echo -e "  ${C_CYAN}3)${C_NC} Ввести IP-адрес и порт вручную по отдельности\n"
 
 read -p "$(echo -e "👉 Выберите вариант ${C_YELLOW}[1, 2 или 3]${C_NC}: ")" STEP1_CHOICE
 echo ""
 
 case $STEP1_CHOICE in
     1)
-        echo -e "${C_PURPLE}Вставьте вашу ссылку (Ctrl+Shift+V или Правая кнопка мыши):${C_NC}"
+        echo -e "${C_PURPLE}Вставьте вашу ссылку:${C_NC}"
         read -p "Ввод: " L
         if [[ "$L" == vless://* ]] || [[ "$L" == hy2://* ]] || [[ "$L" == hysteria2://* ]]; then
             HAS_LINK=true
@@ -64,7 +83,7 @@ case $STEP1_CHOICE in
         fi
         ;;
     2)
-        echo -e "${C_PURPLE}Введите адрес и порт через двоеточие (например: like.dmtr.ru:8443):${C_NC}"
+        echo -e "${C_PURPLE}Введите адрес и порт через двоеточие:${C_NC}"
         read -p "Ввод: " L
         if [[ "$L" == *":"* ]] && [[ ! "$L" == *"/"* ]]; then
             EU_HOST=$(echo "$L" | awk -F: '{print $1}')
@@ -76,38 +95,35 @@ case $STEP1_CHOICE in
         fi
         ;;
     3)
-        echo -e "${C_PURPLE}Введите данные вашего зарубежного сервера по очереди:${C_NC}"
-        read -p "🌍 Введите IP-адрес или домен: " EU_HOST
-        read -p "🚪 Введите ПОРТ: " PORT
+        echo -e "${C_PURPLE}Введите данные вашего зарубежного сервера:${C_NC}"
+        read -p "🌍 IP-адрес или домен: " EU_HOST
+        read -p "🚪 ПОРТ: " PORT
         echo -e " ${C_GREEN}✔ Данные приняты!${C_NC}"
         ;;
     *)
-        echo -e "${C_RED}❌ Ошибка: Такого варианта нет. Введите 1, 2 или 3.${C_NC}"
+        echo -e "${C_RED}❌ Ошибка: Выберите 1, 2 или 3.${C_NC}"
         exit 1
         ;;
 esac
 
-# Определение IP из хоста
 echo ""
 if [[ $EU_HOST =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     EU_IP=$EU_HOST
-    echo -e "🎯 Целевой IP установлен: ${C_YELLOW}$EU_IP${C_NC} (Порт: $PORT)\n"
+    echo -e "🎯 Целевой IP: ${C_YELLOW}$EU_IP${C_NC} (Порт: $PORT)\n"
 else
     echo -e "🔍 Анализируем домен ($EU_HOST)..."
     EU_IP=$(getent ahosts "$EU_HOST" | awk '{ print $1 }' | head -n 1)
     if [ -z "$EU_IP" ]; then
-        echo -e "${C_RED}❌ Ошибка: Не удалось определить IP-адрес для домена $EU_HOST.${C_NC}"
+        echo -e "${C_RED}❌ Ошибка: Не удалось определить IP для $EU_HOST.${C_NC}"
         exit 1
     fi
     echo -e "🎯 Целевой IP найден: ${C_YELLOW}$EU_IP${C_NC} (Порт: $PORT)\n"
 fi
 
 # --- ШАГ 2: ДОМЕН ---
-echo -e "${C_WHITE}📌 ШАГ 2: НАСТРОЙКА ДОМЕНА ДЛЯ ЭТОГО СЕРВЕРА${C_NC}"
-echo -e "Для максимальной маскировки (чтобы провайдер не заподозрил VPN),"
-echo -e "трафик должен идти через домен, а не просто по IP-адресу."
-echo -e "  ${C_CYAN}1)${C_NC} У меня ЕСТЬ домен, привязанный к этому серверу"
-echo -e "  ${C_CYAN}2)${C_NC} У меня НЕТ домена (использовать просто IP-адрес)\n"
+echo -e "${C_WHITE}📌 ШАГ 2: НАСТРОЙКА ВХОДНОГО ДОМЕНА${C_NC}"
+echo -e "  ${C_CYAN}1)${C_NC} У меня ЕСТЬ домен для этого российского сервера"
+echo -e "  ${C_CYAN}2)${C_NC} У меня НЕТ домена (использовать просто IP)\n"
 
 read -p "$(echo -e "👉 Выберите вариант ${C_YELLOW}[1 или 2]${C_NC}: ")" STEP2_CHOICE
 echo ""
@@ -115,37 +131,61 @@ echo ""
 LOCAL_IP=$(curl -s ifconfig.me)
 
 if [ "$STEP2_CHOICE" == "1" ]; then
-    echo -e "${C_PURPLE}Введите ваш домен (например, ru.mydomain.com):${C_NC}"
-    read -p "Ввод: " DOMAIN
+    read -p "Введите ваш домен: " DOMAIN
     ENTRY="$DOMAIN"
     echo -e " ${C_GREEN}✔ Ваш входной адрес: $ENTRY${C_NC}\n"
 else
     ENTRY="$LOCAL_IP"
-    echo -e " ${C_YELLOW}⚠️ Домен не указан. Будет использован IP: $ENTRY${C_NC}"
-    echo -e " 💡 Рекомендуем бесплатно зарегистрировать домен на ${C_CYAN}freedns.afraid.org${C_NC}\n"
+    echo -e " ${C_YELLOW}⚠️ Будет использован IP: $ENTRY${C_NC}\n"
 fi
 
-# --- ШАГ 3: УСТАНОВКА ---
-echo -e "${C_WHITE}📌 ШАГ 3: АВТОМАТИЧЕСКАЯ НАСТРОЙКА${C_NC}"
-echo -e "⚙️ Настраиваем перенаправление трафика (TCP/UDP)..."
-echo 1 > /proc/sys/net/ipv4/ip_forward
-iptables -t nat -F
-iptables -t nat -A PREROUTING -p tcp --dport $PORT -j DNAT --to-destination $EU_IP:$PORT
-iptables -t nat -A POSTROUTING -p tcp -d $EU_IP --dport $PORT -j MASQUERADE
-iptables -t nat -A PREROUTING -p udp --dport $PORT -j DNAT --to-destination $EU_IP:$PORT
-iptables -t nat -A POSTROUTING -p udp -d $EU_IP --dport $PORT -j MASQUERADE
+# --- ШАГ 3: РЕЖИМ УСТАНОВКИ ---
+echo -e "${C_WHITE}📌 ШАГ 3: РЕЖИМ МАРШРУТИЗАЦИИ${C_NC}"
+echo -e "  ${C_CYAN}1)${C_NC} 🧹 ОЧИСТИТЬ старые настройки и настроить всё с нуля"
+echo -e "  ${C_CYAN}2)${C_NC} ➕ ДОБАВИТЬ этот порт к уже существующим (для второго протокола)\n"
 
-echo -e "🛡️ Устанавливаем Web-сервер (Nginx) для маскировки под обычный сайт..."
-apt-get update -qq && apt-get install -y -qq nginx iptables-persistent > /dev/null
+read -p "$(echo -e "👉 Выберите вариант ${C_YELLOW}[1 или 2]${C_NC}: ")" STEP3_CHOICE
+echo ""
 
-cat <<EOF > /var/www/html/index.html
+# --- ШАГ 4: УСТАНОВКА (С АНИМАЦИЕЙ) ---
+echo -e "${C_WHITE}📌 ШАГ 4: АВТОМАТИЧЕСКАЯ НАСТРОЙКА СИСТЕМЫ${C_NC}"
+
+echo -e "⚙️ Настраиваем ядро и маршрутизацию трафика..."
+(
+    echo 1 > /proc/sys/net/ipv4/ip_forward
+
+    if [ "$STEP3_CHOICE" == "1" ]; then
+        iptables -t nat -F
+    fi
+
+    iptables -t nat -D PREROUTING -p tcp --dport $PORT -j DNAT --to-destination $EU_IP:$PORT 2>/dev/null
+    iptables -t nat -D POSTROUTING -p tcp -d $EU_IP --dport $PORT -j MASQUERADE 2>/dev/null
+    iptables -t nat -D PREROUTING -p udp --dport $PORT -j DNAT --to-destination $EU_IP:$PORT 2>/dev/null
+    iptables -t nat -D POSTROUTING -p udp -d $EU_IP --dport $PORT -j MASQUERADE 2>/dev/null
+
+    iptables -t nat -A PREROUTING -p tcp --dport $PORT -j DNAT --to-destination $EU_IP:$PORT
+    iptables -t nat -A POSTROUTING -p tcp -d $EU_IP --dport $PORT -j MASQUERADE
+    iptables -t nat -A PREROUTING -p udp --dport $PORT -j DNAT --to-destination $EU_IP:$PORT
+    iptables -t nat -A POSTROUTING -p udp -d $EU_IP --dport $PORT -j MASQUERADE
+) > /dev/null 2>&1 &
+spinner
+
+echo -e "🛡️ Проверяем и устанавливаем Web-сервер (Nginx) для маскировки..."
+(
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx iptables-persistent
+    
+    cat <<EOF > /var/www/html/index.html
 <!DOCTYPE html><html><head><meta charset="UTF-8"><title>System Maintenance</title><style>body{background:#0f0f11;color:#e0e0e0;text-align:center;padding:10vh 20px;font-family:sans-serif;}h1{font-weight:300;color:#fff;}</style></head><body><h1>🛠 Node Status: Maintenance</h1><p>Scheduled backend upgrades in progress. HTTP traffic is temporarily suspended.</p><p><i>Sysadmin Department</i></p></body></html>
 EOF
-systemctl restart nginx > /dev/null 2>&1
+    systemctl restart nginx
+    netfilter-persistent save
+) > /dev/null 2>&1 &
+spinner
 
 # --- ФИНАЛ ---
 echo -e "\n${C_CYAN}================================================${C_NC}"
-echo -e "${C_GREEN}🎉 ГОТОВО! СЕРВЕР УСПЕШНО НАСТРОЕН.${C_NC}"
+echo -e "${C_GREEN}🎉 ГОТОВО! ПОРТ $PORT УСПЕШНО ПРОБРОШЕН.${C_NC}"
 echo -e "================================================\n"
 
 if [ "$HAS_LINK" = true ]; then
@@ -156,12 +196,9 @@ if [ "$HAS_LINK" = true ]; then
     else
         echo -e "${C_GREEN}${PROTO}://${ID}@${ENTRY}:${PORT}?${PARAMS}#${NEW_NAME}${C_NC}"
     fi
-    echo -e "\nПросто скопируйте эту ссылку и вставьте в ваше VPN-приложение."
 else
     echo -e "${C_WHITE}👇 ВАШИ ДАННЫЕ ДЛЯ ПОДКЛЮЧЕНИЯ 👇${C_NC}"
-    echo -e "Адрес (Address): ${C_GREEN}${ENTRY}${C_NC}"
-    echo -e "Порт (Port):     ${C_GREEN}${PORT}${C_NC}"
-    echo -e "\nЗайдите в ваше VPN-приложение и вручную измените старый адрес на этот новый."
-    echo -e "Рекомендуем добавить к названию профиля: ${C_YELLOW}-TUN[${LOCAL_IP}]${C_NC} для удобства."
+    echo -e "Адрес: ${C_GREEN}${ENTRY}${C_NC}"
+    echo -e "Порт:  ${C_GREEN}${PORT}${C_NC}"
 fi
-echo -e "Приятного пользования свободным интернетом! 😉\n"
+echo -e "\nПриятного пользования свободным интернетом! 😉\n"
