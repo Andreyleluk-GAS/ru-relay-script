@@ -10,84 +10,124 @@ C_RED='\033[1;31m'
 C_NC='\033[0m'
 
 clear
-echo -e "${C_CYAN}    ____  _____ _        _ __   __"
-echo "   |  _ \| ____| |      / \\ \ / /"
-echo "   | |_) |  _| | |     / _ \\ V / "
-echo "   |  _ <| |___| |___ / ___ \| |  "
-echo "   |_| \_\_____|_____/_/   \_\_|  ${C_NC}"
-echo -e "${C_PURPLE}  ✦ Universal Relay Config v4.9 ✦${C_NC}"
+# Надежный вывод ASCII-логотипа без искажений
+printf "${C_CYAN}"
+cat << 'EOF'
+    ____  _____ _        _ __   __
+   |  _ \| ____| |      / \ \ / /
+   | |_) |  _| | |     / _ \ V / 
+   |  _ <| |___| |___ / ___ \| |  
+   |_| \_\_____|_____/_/   \_\_|  
+EOF
+printf "${C_NC}"
+echo -e "${C_PURPLE}  ✦ Super Relay Wizard v5.0 ✦${C_NC}"
 echo -e "${C_YELLOW}             by LeLUK${C_NC}\n"
 
-# --- Блок 1: Идеология ---
+# --- ВВЕДЕНИЕ ---
 echo -e "${C_WHITE}💡 ДЛЯ ЧЕГО ЭТОТ СКРИПТ?${C_NC}"
-echo -e "В связи с инициативами по учету и ограничению зарубежного трафика в РФ,"
-echo -e "этот скрипт превращает ваш российский сервер в невидимый транзитный шлюз."
-echo -e "Ваш домашний провайдер будет видеть только ${C_GREEN}внутренний российский трафик${C_NC},"
-echo -e "в то время как вы будете свободно выходить в интернет через Европу.\n"
+echo -e "Этот мастер настройки превратит ваш сервер в невидимый транзитный шлюз."
+echo -e "Ваш провайдер будет видеть только ${C_GREEN}внутренний российский трафик${C_NC},"
+echo -e "а вы будете свободно выходить в интернет через ваш зарубежный сервер.\n"
 
 if [ "$EUID" -ne 0 ]; then
-  echo -e "${C_RED}❌ Ошибка: Пожалуйста, запустите скрипт с правами root (sudo bash ...)${C_NC}"
+  echo -e "${C_RED}❌ Ошибка: Запустите скрипт от имени администратора (sudo bash ...)${C_NC}"
   exit 1
 fi
 
-# --- Блок 2: Ввод и УМНЫЙ парсинг ---
-echo -e "${C_WHITE}🔗 ДАННЫЕ ПОДКЛЮЧЕНИЯ${C_NC}"
-echo -e "Вы можете вставить полную ссылку (${C_YELLOW}vless://...${C_NC}), либо просто адрес (${C_YELLOW}домен:порт${C_NC})"
-read -p "Ввод: " L
-
 HAS_LINK=false
 
-if [[ "$L" == vless://* ]] || [[ "$L" == hy2://* ]] || [[ "$L" == hysteria2://* ]]; then
-    HAS_LINK=true
-    PROTO=$(echo $L | sed -E 's/^([a-zA-Z2]+):\/\/.*/\1/')
-    ID=$(echo $L | sed -E 's/^[a-zA-Z2]+:\/\/([^@]+)@.*/\1/')
-    EU_HOST=$(echo $L | sed -E 's/.*@([^:]+):.*/\1/')
-    PORT=$(echo $L | sed -E 's/.*:([0-9]+).*/\1/' | cut -d'?' -f1 | cut -d'#' -f1)
-    
-    if [[ "$L" == *"?"* ]]; then PARAMS=$(echo $L | sed -E 's/.*\?(.*)#.*/\1/' | cut -d'#' -f1); else PARAMS=""; fi
-    if [[ "$L" == *"#"* ]]; then NAME=$(echo $L | sed -E 's/.*#(.*)/\1/'); else NAME="Relay"; fi
-    
-    echo -e "${C_GREEN}✔ Распознана полная ссылка. Протокол: $PROTO | Порт: $PORT${C_NC}"
+# --- ШАГ 1: МЕНЮ ВВОДА ---
+echo -e "${C_WHITE}📌 ШАГ 1: ГДЕ ВАШИ ДАННЫЕ ОТ ЗАРУБЕЖНОГО VPN?${C_NC}"
+echo -e "  ${C_CYAN}1)${C_NC} У меня есть полная ссылка (начинается с vless:// или hy2://)"
+echo -e "  ${C_CYAN}2)${C_NC} У меня есть адрес и порт (например: server.vpn.com:8443)"
+echo -e "  ${C_CYAN}3)${C_NC} Я хочу ввести IP-адрес и порт вручную по отдельности\n"
 
-elif [[ "$L" == *":"* ]] && [[ ! "$L" == *"/"* ]]; then
-    EU_HOST=$(echo "$L" | awk -F: '{print $1}')
-    PORT=$(echo "$L" | awk -F: '{print $2}')
-    echo -e "${C_GREEN}✔ Распознан прямой адрес. Порт: $PORT${C_NC}"
+read -p "$(echo -e "👉 Выберите вариант ${C_YELLOW}[1, 2 или 3]${C_NC}: ")" STEP1_CHOICE
+echo ""
 
-else
-    EU_HOST="$L"
-    echo -e "${C_YELLOW}⚠️ Порт не указан.${C_NC}"
-    read -p "🚪 Введите ПОРТ для переадресации (например, 8443 или 443): " PORT
-fi
+case $STEP1_CHOICE in
+    1)
+        echo -e "${C_PURPLE}Вставьте вашу ссылку (Ctrl+Shift+V или Правая кнопка мыши):${C_NC}"
+        read -p "Ввод: " L
+        if [[ "$L" == vless://* ]] || [[ "$L" == hy2://* ]] || [[ "$L" == hysteria2://* ]]; then
+            HAS_LINK=true
+            PROTO=$(echo $L | sed -E 's/^([a-zA-Z2]+):\/\/.*/\1/')
+            ID=$(echo $L | sed -E 's/^[a-zA-Z2]+:\/\/([^@]+)@.*/\1/')
+            EU_HOST=$(echo $L | sed -E 's/.*@([^:]+):.*/\1/')
+            PORT=$(echo $L | sed -E 's/.*:([0-9]+).*/\1/' | cut -d'?' -f1 | cut -d'#' -f1)
+            if [[ "$L" == *"?"* ]]; then PARAMS=$(echo $L | sed -E 's/.*\?(.*)#.*/\1/' | cut -d'#' -f1); else PARAMS=""; fi
+            if [[ "$L" == *"#"* ]]; then NAME=$(echo $L | sed -E 's/.*#(.*)/\1/'); else NAME="Relay"; fi
+            echo -e " ${C_GREEN}✔ Ссылка успешно расшифрована!${C_NC}"
+        else
+            echo -e "${C_RED}❌ Ошибка: Ссылка должна начинаться с vless:// или hy2://${C_NC}"
+            exit 1
+        fi
+        ;;
+    2)
+        echo -e "${C_PURPLE}Введите адрес и порт через двоеточие (например: like.dmtr.ru:8443):${C_NC}"
+        read -p "Ввод: " L
+        if [[ "$L" == *":"* ]] && [[ ! "$L" == *"/"* ]]; then
+            EU_HOST=$(echo "$L" | awk -F: '{print $1}')
+            PORT=$(echo "$L" | awk -F: '{print $2}')
+            echo -e " ${C_GREEN}✔ Адрес и порт распознаны!${C_NC}"
+        else
+            echo -e "${C_RED}❌ Ошибка: Неверный формат. Нужно ввести домен:порт${C_NC}"
+            exit 1
+        fi
+        ;;
+    3)
+        echo -e "${C_PURPLE}Введите данные вашего зарубежного сервера по очереди:${C_NC}"
+        read -p "🌍 Введите IP-адрес или домен: " EU_HOST
+        read -p "🚪 Введите ПОРТ: " PORT
+        echo -e " ${C_GREEN}✔ Данные приняты!${C_NC}"
+        ;;
+    *)
+        echo -e "${C_RED}❌ Ошибка: Такого варианта нет. Введите 1, 2 или 3.${C_NC}"
+        exit 1
+        ;;
+esac
 
+# Определение IP из хоста
+echo ""
 if [[ $EU_HOST =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     EU_IP=$EU_HOST
-    echo -e "   Целевой IP: ${C_YELLOW}$EU_IP${C_NC}\n"
+    echo -e "🎯 Целевой IP установлен: ${C_YELLOW}$EU_IP${C_NC} (Порт: $PORT)\n"
 else
-    echo -e "   ${C_YELLOW}🔍 Обнаружен домен ($EU_HOST). Вычисляем IP...${C_NC}"
+    echo -e "🔍 Анализируем домен ($EU_HOST)..."
     EU_IP=$(getent ahosts "$EU_HOST" | awk '{ print $1 }' | head -n 1)
-    
     if [ -z "$EU_IP" ]; then
-        echo -e "${C_RED}❌ Ошибка: Не удалось определить IP-адрес для $EU_HOST. Проверьте правильность написания!${C_NC}"
+        echo -e "${C_RED}❌ Ошибка: Не удалось определить IP-адрес для домена $EU_HOST.${C_NC}"
         exit 1
     fi
-    echo -e "   ${C_GREEN}✔ Реальный IP зарубежного сервера: $EU_IP${C_NC}\n"
+    echo -e "🎯 Целевой IP найден: ${C_YELLOW}$EU_IP${C_NC} (Порт: $PORT)\n"
 fi
 
-# --- Блок 3: Домен и маскировка ---
-echo -e "${C_WHITE}🌐 НАСТРОЙКА ДОМЕНА И МАСКИРОВКИ${C_NC}"
-echo -e "Скрипт автоматически установит Web-сервер (Nginx)."
-echo -e "Если вы не укажете домен, при переходе по вашему IP откроется ${C_YELLOW}страница-заглушка${C_NC}."
-echo -e "Для максимальной маскировки настоятельно рекомендуем привязать домен!"
-echo -e "🎁 ${C_PURPLE}Лайфхак:${C_NC} Бесплатный домен можно зарегистрировать здесь: ${C_CYAN}https://freedns.afraid.org/${C_NC}\n"
+# --- ШАГ 2: ДОМЕН ---
+echo -e "${C_WHITE}📌 ШАГ 2: НАСТРОЙКА ДОМЕНА ДЛЯ ЭТОГО СЕРВЕРА${C_NC}"
+echo -e "Для максимальной маскировки (чтобы провайдер не заподозрил VPN),"
+echo -e "трафик должен идти через домен, а не просто по IP-адресу."
+echo -e "  ${C_CYAN}1)${C_NC} У меня ЕСТЬ домен, привязанный к этому серверу"
+echo -e "  ${C_CYAN}2)${C_NC} У меня НЕТ домена (использовать просто IP-адрес)\n"
 
-read -p "Введите ваш домен (или просто нажмите Enter, если его нет): " DOMAIN
+read -p "$(echo -e "👉 Выберите вариант ${C_YELLOW}[1 или 2]${C_NC}: ")" STEP2_CHOICE
+echo ""
 
 LOCAL_IP=$(curl -s ifconfig.me)
-if [ -z "$DOMAIN" ]; then ENTRY="$LOCAL_IP"; else ENTRY="$DOMAIN"; fi
 
-# --- Блок 4: Установка ---
-echo -e "\n${C_YELLOW}⚙️ Настраиваем маршрутизацию (TCP и UDP)...${C_NC}"
+if [ "$STEP2_CHOICE" == "1" ]; then
+    echo -e "${C_PURPLE}Введите ваш домен (например, ru.mydomain.com):${C_NC}"
+    read -p "Ввод: " DOMAIN
+    ENTRY="$DOMAIN"
+    echo -e " ${C_GREEN}✔ Ваш входной адрес: $ENTRY${C_NC}\n"
+else
+    ENTRY="$LOCAL_IP"
+    echo -e " ${C_YELLOW}⚠️ Домен не указан. Будет использован IP: $ENTRY${C_NC}"
+    echo -e " 💡 Рекомендуем бесплатно зарегистрировать домен на ${C_CYAN}freedns.afraid.org${C_NC}\n"
+fi
+
+# --- ШАГ 3: УСТАНОВКА ---
+echo -e "${C_WHITE}📌 ШАГ 3: АВТОМАТИЧЕСКАЯ НАСТРОЙКА${C_NC}"
+echo -e "⚙️ Настраиваем перенаправление трафика (TCP/UDP)..."
 echo 1 > /proc/sys/net/ipv4/ip_forward
 iptables -t nat -F
 iptables -t nat -A PREROUTING -p tcp --dport $PORT -j DNAT --to-destination $EU_IP:$PORT
@@ -95,7 +135,7 @@ iptables -t nat -A POSTROUTING -p tcp -d $EU_IP --dport $PORT -j MASQUERADE
 iptables -t nat -A PREROUTING -p udp --dport $PORT -j DNAT --to-destination $EU_IP:$PORT
 iptables -t nat -A POSTROUTING -p udp -d $EU_IP --dport $PORT -j MASQUERADE
 
-echo -e "${C_YELLOW}🛡️ Устанавливаем маскировку (Nginx) и сохраняем правила...${C_NC}"
+echo -e "🛡️ Устанавливаем Web-сервер (Nginx) для маскировки под обычный сайт..."
 apt-get update -qq && apt-get install -y -qq nginx iptables-persistent > /dev/null
 
 cat <<EOF > /var/www/html/index.html
@@ -103,27 +143,25 @@ cat <<EOF > /var/www/html/index.html
 EOF
 systemctl restart nginx > /dev/null 2>&1
 
-# --- Блок 5: Финал ---
+# --- ФИНАЛ ---
 echo -e "\n${C_CYAN}================================================${C_NC}"
-echo -e "${C_GREEN}🎉 SUCCESS! Сервер успешно настроен.${C_NC}"
+echo -e "${C_GREEN}🎉 ГОТОВО! СЕРВЕР УСПЕШНО НАСТРОЕН.${C_NC}"
 echo -e "================================================\n"
 
 if [ "$HAS_LINK" = true ]; then
-    # Кодируем спецсимволы для безопасной URL-ссылки: - это %2D, [ это %5B, ] это %5D
     NEW_NAME="${NAME}%2DTUN%5B${LOCAL_IP}%5D"
-    
     echo -e "${C_WHITE}👇 ВАША НОВАЯ ССЫЛКА ДЛЯ ПОДКЛЮЧЕНИЯ 👇${C_NC}"
     if [ -z "$PARAMS" ]; then
         echo -e "${C_GREEN}${PROTO}://${ID}@${ENTRY}:${PORT}#${NEW_NAME}${C_NC}"
     else
         echo -e "${C_GREEN}${PROTO}://${ID}@${ENTRY}:${PORT}?${PARAMS}#${NEW_NAME}${C_NC}"
     fi
-    echo -e "\nСкопируйте эту ссылку и вставьте в ваше приложение."
+    echo -e "\nПросто скопируйте эту ссылку и вставьте в ваше VPN-приложение."
 else
     echo -e "${C_WHITE}👇 ВАШИ ДАННЫЕ ДЛЯ ПОДКЛЮЧЕНИЯ 👇${C_NC}"
     echo -e "Адрес (Address): ${C_GREEN}${ENTRY}${C_NC}"
     echo -e "Порт (Port):     ${C_GREEN}${PORT}${C_NC}"
-    echo -e "\nЗайдите в ваше приложение и вручную замените старый адрес на этот новый."
+    echo -e "\nЗайдите в ваше VPN-приложение и вручную измените старый адрес на этот новый."
     echo -e "Рекомендуем добавить к названию профиля: ${C_YELLOW}-TUN[${LOCAL_IP}]${C_NC} для удобства."
 fi
 echo -e "Приятного пользования свободным интернетом! 😉\n"
