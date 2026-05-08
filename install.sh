@@ -1,12 +1,13 @@
 #!/bin/bash
 
-# --- Настройка стилей ---
+# --- Настройка стилей (Яркие и насыщенные цвета) ---
 C_CYAN='\033[1;36m'
 C_GREEN='\033[1;32m'
-C_PURPLE='\033[1;35m'
+C_PURPLE='\033[1;35m' # Розовый / Маджента
 C_YELLOW='\033[1;33m'
 C_WHITE='\033[1;37m'
 C_RED='\033[1;31m'
+C_BOLD='\033[1m'
 C_NC='\033[0m'
 
 # --- Функция анимации (Спиннер) ---
@@ -23,8 +24,7 @@ spinner() {
     printf "\r  ${C_GREEN}✔ Готово!                           ${C_NC}\n"
 }
 
-# --- Функция цикличного меню (Защита от дурака) ---
-# Параметры: $1 - текст вопроса, $2 - количество вариантов
+# --- Функция защиты от ошибок ввода ---
 ask_step() {
     local attempts=0
     local max_attempts=5
@@ -36,15 +36,12 @@ ask_step() {
         else
             ((attempts++))
             if [ $attempts -ge $max_attempts ]; then
-                echo -e "\n${C_YELLOW}⚠️ Слишком много ошибок ($attempts).${C_NC}"
-                read -p "Хотите продолжить (1) или выйти (2)? " retry
-                if [ "$retry" == "2" ]; then
-                    echo -e "${C_RED}Установка отменена. Всего доброго!${C_NC}"
-                    exit 1
-                fi
+                echo -e "\n${C_YELLOW}⚠️ Слишком много попыток.${C_NC}"
+                read -p "Продолжить (1) или выйти (2)? " retry
+                [ "$retry" == "2" ] && exit 1
                 attempts=0
             else
-                echo -e "${C_RED}❌ Ошибка! Введите цифру от 1 до $2 (Попытка $attempts из $max_attempts)${C_NC}"
+                echo -e "${C_RED}❌ Введите цифру от 1 до $2 (Попытка $attempts из $max_attempts)${C_NC}"
             fi
         fi
     done
@@ -55,30 +52,30 @@ printf "${C_CYAN}"
 cat << 'EOF'
     ____  _____ _        _ __   __
    |  _ \| ____| |      / \ \ / /
-   | |_) |  _| | |     / _ \ V / 
+   | |_) |  _| | |     / _ \ \ / 
    |  _ <| |___| |___ / ___ \| |  
    |_| \_\_____|_____/_/   \_\_|  
 EOF
 printf "${C_NC}"
-echo -e "${C_PURPLE}  ✦ Super Relay Wizard v5.4 ✦${C_NC}"
+echo -e "${C_PURPLE}${C_BOLD}  ✦ Super Relay Wizard v5.5 ✦${C_NC}"
 echo -e "${C_YELLOW}             by LeLUK${C_NC}\n"
 
-echo -e "${C_WHITE}💡 ДЛЯ ЧЕГО ЭТОТ СКРИПТ?${C_NC}"
-echo -e "Этот мастер превратит ваш сервер в невидимый транзитный шлюз."
-echo -e "Ваш провайдер будет видеть только ${C_GREEN}внутренний российский трафик${C_NC}.\n"
+echo -e "${C_WHITE}💡 СУТЬ РАБОТЫ:${C_NC}"
+echo -e "Этот скрипт маскирует ваш трафик под ${C_GREEN}российский${C_NC}."
+echo -e "Провайдер увидит обращение к этому серверу (РФ), а не в Европу."
 
-echo -e "${C_YELLOW}⚠️ ВАЖНОЕ УСЛОВИЕ:${C_NC}"
-echo -e "Скрипт должен запускаться на сервере с ${C_GREEN}РОССИЙСКИМ IP${C_NC} (Яндекс и т.д.).\n"
+echo -e "\n${C_YELLOW}⚠️ ПРОВЕРКА IP:${C_NC}"
+echo -e "Для обхода ограничений биллинга этот сервер ${C_RED}ДОЛЖЕН${C_NC} иметь российский IP."
 
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${C_RED}❌ Ошибка: Нужны права root (sudo bash ...)${C_NC}"
+    echo -e "${C_RED}❌ Нужны права root (sudo bash ...)${C_NC}"
     exit 1
 fi
 
-# --- ШАГ 1 ---
-echo -e "${C_WHITE}📌 ШАГ 1: ВЫБОР ИСТОЧНИКА ДАННЫХ${C_NC}"
+# --- ШАГ 1: ДАННЫЕ ---
+echo -e "\n${C_WHITE}📌 ШАГ 1: ИСТОЧНИК ДАННЫХ${C_NC}"
 echo -e "  1) Полная ссылка (vless:// / hy2://)\n  2) Адрес и порт (домен:порт)\n  3) Ввести вручную"
-CHOICE=$(ask_step "👉 Выберите вариант [1-3]: " 3)
+CHOICE=$(ask_step "👉 Ваш выбор [1-3]: " 3)
 
 HAS_LINK=false
 case $CHOICE in
@@ -96,48 +93,51 @@ case $CHOICE in
                 [[ "$L" == *"#"* ]] && NAME=$(echo $L | sed -E 's/.*#(.*)/\1/') || NAME="Relay"
                 break
             else
-                echo -e "${C_RED}❌ Неверный формат ссылки! Попробуйте еще раз.${C_NC}"
+                echo -e "${C_RED}❌ Неверный формат!${C_NC}"
             fi
         done
         ;;
     2)
-        read -p "Введите адрес и порт (домен:8443): " L
+        read -p "Введите домен:порт : " L
         EU_HOST=$(echo "$L" | awk -F: '{print $1}'); PORT=$(echo "$L" | awk -F: '{print $2}')
         ;;
     3)
-        read -p "🌍 IP или домен: " EU_HOST; read -p "🚪 ПОРТ: " PORT
+        read -p "🌍 Целевой IP/Домен: " EU_HOST; read -p "🚪 ПОРТ: " PORT
         ;;
 esac
 
 # DNS Check
-echo -e "\n🔍 Анализируем целевой адрес..."
-if [[ $EU_HOST =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    EU_IP=$EU_HOST
-else
-    EU_IP=$(getent ahosts "$EU_HOST" | awk '{ print $1 }' | head -n 1)
-    if [ -z "$EU_IP" ]; then echo -e "${C_RED}❌ Ошибка DNS!${C_NC}"; exit 1; fi
-fi
-echo -e "🎯 Цель: ${C_YELLOW}$EU_IP:$PORT${C_NC}"
+echo -ne "\n🔍 Анализ цели... "
+EU_IP=$(getent ahosts "$EU_HOST" | awk '{ print $1 }' | head -n 1)
+if [ -z "$EU_IP" ]; then echo -e "${C_RED}Ошибка DNS!${C_NC}"; exit 1; fi
+echo -e "${C_GREEN}$EU_IP:$PORT${C_NC}"
 
-# --- ШАГ 2 ---
+# --- ШАГ 2: ВХОДНОЙ АДРЕС ---
 echo -e "\n${C_WHITE}📌 ШАГ 2: ВХОДНОЙ АДРЕС${C_NC}"
-echo -e "  1) Использовать ДОМЕН\n  2) Использовать просто IP"
+echo -e "${C_CYAN}❓ ЧТО ЭТО:${C_NC} Это адрес, который вы укажете в приложении VPN."
+echo -e "Это 'лицо' вашего сервера для провайдера. Лучше использовать домен."
+echo -e "  1) У меня есть ДОМЕН\n  2) Использовать только IP"
 CHOICE2=$(ask_step "👉 Ваш выбор [1-2]: " 2)
 
 LOCAL_IP=$(curl -s ifconfig.me)
 if [ "$CHOICE2" == "1" ]; then
-    read -p "Введите домен: " DOMAIN; ENTRY="$DOMAIN"
+    read -p "Введите домен (например, elite.dmtr.ru): " DOMAIN; ENTRY="$DOMAIN"
 else
     ENTRY="$LOCAL_IP"
+    echo -e "\n${C_YELLOW}💡 СПРАВКА: КАК СДЕЛАТЬ БЕСПЛАТНЫЙ ДОМЕН?${C_NC}"
+    echo -e "  1. Зайдите на ${C_CYAN}freedns.afraid.org${C_NC}"
+    echo -e "  2. Меню 'Dynamic DNS' -> 'Add'"
+    echo -e "  3. Выберите домен, укажите поддомен и этот IP: ${C_GREEN}$LOCAL_IP${C_NC}"
+    echo -e "  4. После этого запустите скрипт снова и выберите пункт 1."
 fi
 
-# --- ШАГ 3 ---
+# --- ШАГ 3: РЕЖИМ ---
 echo -e "\n${C_WHITE}📌 ШАГ 3: РЕЖИМ УСТАНОВКИ${C_NC}"
-echo -e "  1) ОЧИСТИТЬ всё и начать с нуля\n  2) ДОБАВИТЬ новый порт к старым"
+echo -e "  1) ОЧИСТИТЬ (для первого запуска)\n  2) ДОБАВИТЬ (для второго протокола)"
 CHOICE3=$(ask_step "👉 Ваш выбор [1-2]: " 2)
 
 # --- ШАГ 4: УСТАНОВКА ---
-echo -e "\n${C_WHITE}📌 ШАГ 4: НАСТРОЙКА${C_NC}"
+echo -e "\n${C_WHITE}📌 ШАГ 4: НАСТРОЙКА СИСТЕМЫ${C_NC}"
 (
     echo 1 > /proc/sys/net/ipv4/ip_forward
     [ "$CHOICE3" == "1" ] && iptables -t nat -F
@@ -153,11 +153,18 @@ echo -e "\n${C_WHITE}📌 ШАГ 4: НАСТРОЙКА${C_NC}"
 spinner
 
 # --- ФИНАЛ ---
-echo -e "\n${C_GREEN}🎉 УСПЕШНО НАСТРОЕНО!${C_NC}"
+echo -e "\n${C_CYAN}================================================${C_NC}"
+echo -e "${C_GREEN}${C_BOLD} 🎉 ВСЁ УСПЕШНО НАСТРОЕНО!${C_NC}"
+echo -e "${C_CYAN}================================================${C_NC}\n"
+
 if [ "$HAS_LINK" = true ]; then
+    # %2D = -, %5B = [, %5D = ]
     NEW_NAME="${NAME}%2DTUN%5B${LOCAL_IP}%5D"
-    echo -e "${C_WHITE}Ваша ссылка:${C_NC}"
-    echo -e "${C_GREEN}${PROTO}://${ID}@${ENTRY}:${PORT}?${PARAMS}#${NEW_NAME}${C_NC}"
+    echo -e "${C_WHITE}ВАША НОВАЯ ССЫЛКА (Скопируйте целиком):${C_NC}"
+    echo -e "${C_PURPLE}${C_BOLD}${PROTO}://${ID}@${ENTRY}:${PORT}?${PARAMS}#${NEW_NAME}${C_NC}\n"
 else
-    echo -e "Адрес: ${C_GREEN}${ENTRY}${C_NC} | Порт: ${C_GREEN}${PORT}${C_NC}"
+    echo -e "${C_WHITE}ДАННЫЕ ДЛЯ ВВОДА ВРУЧНУЮ:${C_NC}"
+    echo -e "Адрес: ${C_GREEN}${ENTRY}${C_NC}"
+    echo -e "Порт:  ${C_GREEN}${PORT}${C_NC}\n"
 fi
+echo -e "Добавьте эту ссылку в V2rayNG, NekoBox или Shadowrocket. Приятного пользования! 🚀"
